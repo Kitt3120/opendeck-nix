@@ -3,11 +3,11 @@ set -euo pipefail
 
 # OpenDeck update script
 # Usage: ./update.sh <version>
-# Example: ./update.sh 2.7.2
+# Example: ./update.sh 2.12.0
 
 if [ $# -ne 1 ]; then
     echo "Usage: $0 <version>"
-    echo "Example: $0 2.7.2"
+    echo "Example: $0 2.12.0"
     exit 1
 fi
 
