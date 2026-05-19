@@ -10,7 +10,6 @@
     let
       systems = [
         "x86_64-linux"
-        "aarch64-linux"
       ];
       forEachSystem = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
     in
@@ -23,5 +22,8 @@
       overlays.default = final: _prev: {
         opendeck = final.callPackage ./pkg/package.nix { };
       };
+
+      nixosModules.opendeck = import ./module/opendeck.nix;
+      nixosModules.default = self.nixosModules.opendeck;
     };
 }
