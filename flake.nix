@@ -23,7 +23,10 @@
         opendeck = final.callPackage ./pkg/package.nix { };
       };
 
-      nixosModules.opendeck = import ./module/opendeck.nix;
+      nixosModules.opendeck = {
+        imports = [ ./module/opendeck.nix ];
+        nixpkgs.overlays = [ self.overlays.default ];
+      };
       nixosModules.default = self.nixosModules.opendeck;
     };
 }
