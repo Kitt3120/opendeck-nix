@@ -31,14 +31,14 @@ SRC_DIR="$TEMP_DIR/opendeck-${VERSION}"
 
 # Step 3: Download deno.lock from the tagged release
 echo "==> Downloading deno.lock..."
-curl -sL "https://raw.githubusercontent.com/nekename/opendeck/v${VERSION}/deno.lock" -o "$SCRIPT_DIR/deno.lock"
+curl -sL "https://raw.githubusercontent.com/nekename/opendeck/v${VERSION}/deno.lock" -o "$SCRIPT_DIR/../pkg/deno.lock"
 echo "    ✓ deno.lock updated"
 
 # Step 4: Generate main Cargo.lock
 echo "==> Generating main Cargo.lock..."
 cd "$SRC_DIR/src-tauri"
 cargo generate-lockfile
-cp Cargo.lock "$SCRIPT_DIR/Cargo.lock"
+cp Cargo.lock "$SCRIPT_DIR/../pkg/Cargo.lock"
 echo "    ✓ Cargo.lock updated"
 
 # Step 5: Copy starterpack Cargo.lock from source (with enigo as git dep)
@@ -57,12 +57,12 @@ fi
 
 # Use the upstream Cargo.lock as-is (it has enigo as a git dep, which importCargoLock
 # handles via outputHashes — no machine-specific path hacks needed)
-cp "$PLUGIN_DIR/Cargo.lock" "$SCRIPT_DIR/starterpack-Cargo.lock"
+cp "$PLUGIN_DIR/Cargo.lock" "$SCRIPT_DIR/../pkg/starterpack-Cargo.lock"
 echo "    ✓ starterpack-Cargo.lock updated"
 
 # Step 6: Summary of changes needed
 echo ""
-echo "==> Summary of changes needed in package.nix:"
+echo "==> Summary of changes needed in pkg/package.nix:"
 echo "    version = \"$VERSION\";"
 echo "    srcHash = \"sha256-${SRC_HASH}\";"
 if [ -n "${ENIGO_REV:-}" ]; then

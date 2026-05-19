@@ -16,12 +16,12 @@
     in
     {
       packages = forEachSystem (pkgs: rec {
-        opendeck = pkgs.callPackage ./package.nix { };
+        opendeck = pkgs.callPackage ./pkg/package.nix { };
         default = opendeck;
       });
 
       overlays.default = final: _prev: {
-        opendeck = final.callPackage ./package.nix { };
+        opendeck = final.callPackage ./pkg/package.nix { };
       };
     };
 }
