@@ -2,8 +2,16 @@
 set -euo pipefail
 
 # OpenDeck update script
-# Usage: ./update.sh <version>
-# Example: ./update.sh 2.12.0
+# Must be run from the root directory of the project.
+# Usage: ./utils/update.sh <version>
+# Example: ./utils/update.sh 2.12.0
+
+# Ensure the script is run from the project root
+if [ ! -f "flake.nix" ]; then
+    echo "Error: This script must be run from the root directory of the project."
+    echo "Usage: ./utils/update.sh <version>"
+    exit 1
+fi
 
 if [ $# -ne 1 ]; then
     echo "Usage: $0 <version>"
@@ -12,7 +20,7 @@ if [ $# -ne 1 ]; then
 fi
 
 VERSION="$1"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$PWD"
 
 echo "==> Updating OpenDeck to version $VERSION"
 
@@ -31,14 +39,15 @@ SRC_DIR="$TEMP_DIR/opendeck-${VERSION}"
 
 # Step 3: Download deno.lock from the tagged release
 echo "==> Downloading deno.lock..."
-curl -sL "https://raw.githubusercontent.com/nekename/opendeck/v${VERSION}/deno.lock" -o "$SCRIPT_DIR/../pkg/deno.lock"
+curl -sL "https://raw.githubusercontent.com/nekename/opendeck/v${VERSION}/deno.lock" -o "$PROJECT_ROOT/pkg/deno.lock"
 echo "    ✓ deno.lock updated"
 
 # Step 4: Generate main Cargo.lock
 echo "==> Generating main Cargo.lock..."
 cd "$SRC_DIR/src-tauri"
-cargo generate-lockfile
-cp Cargo.lock "$SCRIPT_DIR/../pkg/Cargo.lock"
+# use a nix-shell with rust/cargo
+nix-shell -p cargo --run "cargo generate-lockfile"
+cp Cargo.lock "$PROJECT_ROOT/pkg/Cargo.lock"
 echo "    ✓ Cargo.lock updated"
 
 # Step 5: Copy starterpack Cargo.lock from source (with enigo as git dep)
@@ -57,7 +66,7 @@ fi
 
 # Use the upstream Cargo.lock as-is (it has enigo as a git dep, which importCargoLock
 # handles via outputHashes — no machine-specific path hacks needed)
-cp "$PLUGIN_DIR/Cargo.lock" "$SCRIPT_DIR/../pkg/starterpack-Cargo.lock"
+cp "$PLUGIN_DIR/Cargo.lock" "$PROJECT_ROOT/pkg/starterpack-Cargo.lock"
 echo "    ✓ starterpack-Cargo.lock updated"
 
 # Step 6: Summary of changes needed
