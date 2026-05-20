@@ -1,4 +1,5 @@
-#!/usr/bin/env bash
+#!/usr/bin/env nix-shell
+#!nix-shell -i bash -p curl nix-prefetch-scripts nix-prefetch-git gnugrep cargo
 set -euo pipefail
 
 # OpenDeck update script
@@ -26,8 +27,9 @@ echo "==> Updating OpenDeck to version $VERSION"
 
 # Step 1: Fetch source and get hash
 echo "==> Fetching source hash..."
-SRC_HASH=$(nix-prefetch-url --unpack "https://github.com/nekename/opendeck/archive/refs/tags/v${VERSION}.tar.gz")
-echo "    srcHash = \"sha256-${SRC_HASH}\""
+SRC_HASH_B32=$(nix-prefetch-url --unpack "https://github.com/nekename/opendeck/archive/refs/tags/v${VERSION}.tar.gz")
+SRC_HASH=$(nix hash convert --hash-algo sha256 --to sri "$SRC_HASH_B32")
+echo "    srcHash = \"${SRC_HASH}\""
 
 # Step 2: Download source for lock file generation
 echo "==> Downloading source..."
@@ -35,7 +37,7 @@ TEMP_DIR=$(mktemp -d)
 trap "rm -rf $TEMP_DIR" EXIT
 
 curl -sL "https://github.com/nekename/opendeck/archive/refs/tags/v${VERSION}.tar.gz" | tar xz -C "$TEMP_DIR"
-SRC_DIR="$TEMP_DIR/opendeck-${VERSION}"
+SRC_DIR="$TEMP_DIR/OpenDeck-${VERSION}"
 
 # Step 3: Download deno.lock from the tagged release
 echo "==> Downloading deno.lock..."
@@ -45,8 +47,7 @@ echo "    ✓ deno.lock updated"
 # Step 4: Generate main Cargo.lock
 echo "==> Generating main Cargo.lock..."
 cd "$SRC_DIR/src-tauri"
-# use a nix-shell with rust/cargo
-nix-shell -p cargo --run "cargo generate-lockfile"
+cargo generate-lockfile
 cp Cargo.lock "$PROJECT_ROOT/pkg/Cargo.lock"
 echo "    ✓ Cargo.lock updated"
 
@@ -60,7 +61,7 @@ if [ -n "$ENIGO_REV" ]; then
     echo "    Found enigo rev: $ENIGO_REV"
 
     # Get the hash of the enigo git source for importCargoLock.outputHashes
-    ENIGO_HASH=$(nix-prefetch-git --url https://github.com/enigo-rs/enigo.git --rev "$ENIGO_REV" 2>/dev/null | grep '"hash"' | grep -oP '"sha256-[^"]+"' | tr -d '"')
+    ENIGO_HASH=$(nix-prefetch-git --url https://github.com/enigo-rs/enigo.git --rev "$ENIGO_REV" 2>/dev/null | grep '"hash"' | grep -oP '"sha256-[^"]+"' | tr -d '"') || ENIGO_HASH=""
     echo "    enigoHash = \"$ENIGO_HASH\""
 fi
 
@@ -71,32 +72,24 @@ echo "    ✓ starterpack-Cargo.lock updated"
 
 # Step 6: Summary of changes needed
 echo ""
+echo "==> Lock files updated:"
+echo "    ✓ deno.lock"
+echo "    ✓ Cargo.lock"
+echo "    ✓ starterpack-Cargo.lock"
+
+echo ""
 echo "==> Summary of changes needed in pkg/package.nix:"
 echo "    version = \"$VERSION\";"
-echo "    srcHash = \"sha256-${SRC_HASH}\";"
+echo "    srcHash = \"${SRC_HASH}\";"
 if [ -n "${ENIGO_REV:-}" ]; then
     ENIGO_VERSION=$(grep -A2 'name = "enigo"' "$PLUGIN_DIR/Cargo.lock" | grep 'version' | grep -oP '[\d.]+')
     echo "    enigoHash = \"$ENIGO_HASH\";"
     echo "    (outputHashes key should be: \"enigo-${ENIGO_VERSION}\")"
 fi
 
-# Step 7: Update FOD hashes by letting the build fail and reading the expected hashes
-echo ""
-echo "==> After updating package.nix, run the following to get the new FOD hashes:"
-echo "    nix build .#opendeck.passthru.frontend 2>&1 | grep 'got:'"
-echo "    nix build .#opendeck.passthru.pluginDenoDeps 2>&1 | grep 'got:'"
-echo ""
-echo "    Or just run: nix build .#opendeck"
-echo "    and copy the 'got:' hashes from the error messages into package.nix"
-
-echo ""
-echo "==> Lock files updated:"
-echo "    ✓ deno.lock"
-echo "    ✓ Cargo.lock"
-echo "    ✓ starterpack-Cargo.lock"
 echo ""
 echo "==> Next steps:"
-echo "    1. Update version and hashes in package.nix"
+echo "    1. Update package.nix with the values listed above."
 echo "    2. Try building: nix build .#opendeck"
-echo "    3. Update frontendHash and pluginDenoDepsHash from build errors"
+echo "    3. Update hashes in package.nix"
 echo "    4. Build again until it works"

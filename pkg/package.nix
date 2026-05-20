@@ -48,8 +48,8 @@ let
   };
 
   # Fixed Output Derivation (FOD) output hashes
-  frontendHash = "sha256-QYcjOeXMOsvZRI7cDoCaff0VbMOVDmMx5nQJ7eR/yNY=";
-  pluginDenoDepsHash = "sha256-I/N+VA2/s5sUJzPeUJ0eY7d+PcBeJbdufpI2EnjGL7w=";
+  frontendHash = "sha256-lP8HFZib9VYmtCbJfd0olkb9wQ2ZPQO13d5I3o6sKdo=";
+  pluginDenoDepsHash = "sha256-Z8qm67o47PnY5YoWbP7CkYIBZvK3H9R9S7UHF3eE3hs=";
 
   # Additional output hashes of plugin cargo dependencies that need to be specified
   pluginCargoOutputHashes = {
@@ -112,21 +112,27 @@ let
 
     nativeBuildInputs = [ deno ];
 
-    dontInstall = true;
-
     # Provide our vendored deno.lock to make the FOD reproducible and build the deno dependencies
     buildPhase = ''
       runHook preBuild
 
       cp ${./deno.lock} deno.lock
-      export DENO_DIR="$out"
+      export DENO_DIR="$TMPDIR/deno"
       for plugin in plugins/*; do
         if [ -d "$plugin" ] && [ -f "$plugin/build.ts" ]; then
-          deno cache --allow-scripts "$plugin/build.ts"
+          deno cache --frozen --allow-scripts "$plugin/build.ts"
         fi
       done
 
       runHook postBuild
+    '';
+
+    installPhase = ''
+      runHook preInstall
+
+      cp -r "$TMPDIR/deno" "$out"
+
+      runHook postInstall
     '';
   };
 
@@ -252,10 +258,11 @@ rustPlatform.buildRustPackage {
     outputHashes = cargoOutputHashes;
   };
 
-  # Copy our vendored Cargo.lock to the source root for cargoSetupPostPatchHook validation
+  # Copy our vendored Cargo.lock into the build environment for cargoSetupPostPatchHook validation
   # This must happen before patchPhase because cargoSetupPostPatchHook validates it
   postUnpack = ''
     cp ${./Cargo.lock} $sourceRoot/Cargo.lock
+    cp ${./Cargo.lock} $sourceRoot/src-tauri/Cargo.lock
   '';
 
   # Some fixes for our build environment:
