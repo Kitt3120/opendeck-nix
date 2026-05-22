@@ -48,8 +48,8 @@ let
   };
 
   # Fixed Output Derivation (FOD) output hashes
-  frontendHash = "sha256-tgwx2YUSvSwBs2TQmtHyKaAqEvoR60HKPmarGimgP8k=";
-  pluginDenoDepsHash = "sha256-Wbx9ZJeFMBP7YJAZmo+QuWEl9H2hiBBl8CDtbfhSqwE=";
+  frontendHash = "sha256-QRyW9sxIzpKX4drSbuvWdOi6WVuM3H97HnVhYOtJPxo=";
+  pluginDenoDepsHash = "sha256-4j4JoCpf0d7NGbujuZZKrw9EnBkuwFRksBNde3UYdvk=";
 
   # Additional output hashes of plugin cargo dependencies that need to be specified
   pluginCargoOutputHashes = {
@@ -127,10 +127,12 @@ let
       runHook postBuild
     '';
 
+    # Only copy the deno/remote/ directory to prevent end-user hash mismatches due to caches being copied
     installPhase = ''
       runHook preInstall
 
-      cp -r "$TMPDIR/deno" "$out"
+      mkdir -p "$out"
+      cp -r "$TMPDIR/deno/remote" "$out/"
 
       runHook postInstall
     '';
