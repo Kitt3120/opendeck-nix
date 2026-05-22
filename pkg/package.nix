@@ -48,8 +48,8 @@ let
   };
 
   # Fixed Output Derivation (FOD) output hashes
-  frontendHash = "sha256-lP8HFZib9VYmtCbJfd0olkb9wQ2ZPQO13d5I3o6sKdo=";
-  pluginDenoDepsHash = "sha256-Z8qm67o47PnY5YoWbP7CkYIBZvK3H9R9S7UHF3eE3hs=";
+  frontendHash = "sha256-tgwx2YUSvSwBs2TQmtHyKaAqEvoR60HKPmarGimgP8k=";
+  pluginDenoDepsHash = "sha256-Wbx9ZJeFMBP7YJAZmo+QuWEl9H2hiBBl8CDtbfhSqwE=";
 
   # Additional output hashes of plugin cargo dependencies that need to be specified
   pluginCargoOutputHashes = {
