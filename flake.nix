@@ -20,7 +20,7 @@
       });
 
       overlays.default = final: _prev: {
-        opendeck = final.callPackage ./pkg/package.nix { };
+        opendeck = self.packages.${final.stdenv.hostPlatform.system}.opendeck;
       };
 
       nixosModules.opendeck = {
