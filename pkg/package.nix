@@ -42,19 +42,17 @@ let
   version = "2.12.0";
   srcHash = "sha256-ZXYRCBFUBeoC8PFx3RY/yU9xc1bqZ6z9+72tMxDVczQ=";
 
-  # Additional output hashes of cargo dependencies that need to be specified
+  # Additional output hashes of external cargo git dependencies that need to be specified
   cargoOutputHashes = {
     "fix-path-env-0.0.0" = "sha256-UygkxJZoiJlsgp8PLf1zaSVsJZx1GGdQyTXqaFv3oGk=";
   };
-
-  # Fixed Output Derivation (FOD) output hashes
-  frontendHash = "sha256-QRyW9sxIzpKX4drSbuvWdOi6WVuM3H97HnVhYOtJPxo=";
-  pluginDenoDepsHash = "sha256-4j4JoCpf0d7NGbujuZZKrw9EnBkuwFRksBNde3UYdvk=";
-
-  # Additional output hashes of plugin cargo dependencies that need to be specified
   pluginCargoOutputHashes = {
     "enigo-0.6.1" = "sha256-zcxgs30L5dQiq/tJNUla6rwZvS2FGOc0O7tTDKifLPo=";
   };
+
+  # Fixed Output Derivation (FOD) output hashes
+  frontendHash = "sha256-AilVvr5T/Ha4CIoGw4JTjGo21c8uf/w4amuMnBtUBSY=";
+  pluginDenoDepsHash = "sha256-zAJg3zMB0jWPsZTKxPqBVo5FLPHsuSxOq0nJAfAAvyA=";
 
   # src info that is inherited by the frontend, plugins, plugin deps, and the actual OpenDeck derivation
   src = fetchFromGitHub {
@@ -127,9 +125,12 @@ let
       runHook postBuild
     '';
 
-    # Only copy the deno/remote/ directory to prevent end-user hash mismatches due to caches being copied
+    # Only copy the deno/remote/ directory, stripping .metadata.json sidecar files which
+    # contain non-deterministic HTTP response headers (date, etag, etc.) that vary between machines.
     installPhase = ''
       runHook preInstall
+
+      find "$TMPDIR/deno/remote" -name "*.metadata.json" -delete
 
       mkdir -p "$out"
       cp -r "$TMPDIR/deno/remote" "$out/"
