@@ -51,8 +51,8 @@ let
   };
 
   # Fixed Output Derivation (FOD) output hashes
-  frontendHash = "sha256-AilVvr5T/Ha4CIoGw4JTjGo21c8uf/w4amuMnBtUBSY=";
-  pluginDenoDepsHash = "sha256-zAJg3zMB0jWPsZTKxPqBVo5FLPHsuSxOq0nJAfAAvyA=";
+  frontendHash = "sha256-0XEnL0kQyhsl7NRAwhq3NxNzhRF7h0GZgV2FQovGzbw=";
+  pluginDenoDepsHash = "sha256-8OVZkr+1yadUFiRmNBmPun89gQWJ9TdPKeoOZziyJys=";
 
   # src info that is inherited by the frontend, plugins, plugin deps, and the actual OpenDeck derivation
   src = fetchFromGitHub {
@@ -125,11 +125,23 @@ let
       runHook postBuild
     '';
 
-    # Only copy the deno/remote/ directory, stripping .metadata.json sidecar files which
-    # contain non-deterministic HTTP response headers (date, etag, etc.) that vary between machines.
+    # Copy only DENO_DIR/remote/, filtering out non-deterministic files:
+    # 1. Non-versioned registry meta.json files (e.g. jsr.io/@std/fs/meta.json) contain
+    #    version listings with timestamps that grow over time as new versions are published.
+    #    These are identified by their .metadata.json sidecar URL ending in [^_]meta.json.
+    # 2. All .metadata.json sidecar files contain non-deterministic HTTP response headers
+    #    (Date, ETag, etc.) and are deleted after being used for filtering in step 1.
     installPhase = ''
       runHook preInstall
 
+      # Step 1: remove registry meta listing files and their sidecars
+      find "$TMPDIR/deno/remote" -name "*.metadata.json" | while IFS= read -r meta; do
+        if grep -qE '"url":"[^"]*[^_]meta\.json"' "$meta" 2>/dev/null; then
+          rm -f "$meta" "''${meta%.metadata.json}"
+        fi
+      done
+
+      # Step 2: remove all remaining .metadata.json sidecar files
       find "$TMPDIR/deno/remote" -name "*.metadata.json" -delete
 
       mkdir -p "$out"
