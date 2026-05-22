@@ -10,10 +10,11 @@ Add the following input to your `flake.nix`:
 {
   inputs = {
     opendeck-nix.url = "github:Kitt3120/opendeck-nix";
-    opendeck-nix.inputs.nixpkgs.follows = "nixpkgs";
   };
 }
 ```
+
+**Please do not set `opendeck-nix.inputs.nixpkgs.follows = "nixpkgs";`**. You will end up with hash-mismatches.
 
 Enable OpenDeck:
 
