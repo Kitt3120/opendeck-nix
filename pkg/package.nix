@@ -35,6 +35,7 @@
   libxrandr,
   libxi,
   autoPatchelfHook,
+  jq,
 }:
 
 let
@@ -51,8 +52,8 @@ let
   };
 
   # Fixed Output Derivation (FOD) output hashes
-  frontendHash = "sha256-0XEnL0kQyhsl7NRAwhq3NxNzhRF7h0GZgV2FQovGzbw=";
-  pluginDenoDepsHash = "sha256-8OVZkr+1yadUFiRmNBmPun89gQWJ9TdPKeoOZziyJys=";
+  frontendHash = "sha256-dWBkG2O2CpI/d0vVONUmZ4Qj/NfKwBejs2M+dTcuXYQ=";
+  pluginDenoDepsHash = "sha256-2onuAQfHyVvf21mYJ18oEu+jNRWCdr5xiRk4/1Pp1ak=";
 
   # src info that is inherited by the frontend, plugins, plugin deps, and the actual OpenDeck derivation
   src = fetchFromGitHub {
@@ -80,7 +81,13 @@ let
 
       cp ${./deno.lock} deno.lock
       export DENO_DIR="$TMPDIR/deno"
+      export SOURCE_DATE_EPOCH=1
       deno install --frozen
+
+      # Patch svelte.config.ts: set a fixed version.name so SvelteKit does not
+      # embed Date.now() in _app/version.json and the JS bundles.
+      sed -i 's/adapter: adapter(),/adapter: adapter(), version: { name: "${version}" },/' svelte.config.ts
+
       deno task build
 
       runHook postBuild
@@ -88,6 +95,19 @@ let
 
     installPhase = ''
       runHook preInstall
+
+      # SvelteKit embeds a random uid (e.g. __sveltekit_jgbz2p) in index.html
+      # and a Date.now() timestamp in _app/version.json — both are non-deterministic.
+      # Normalize them to fixed values so the FOD hash is stable across rebuilds.
+      if [ -f build/index.html ]; then
+        uid=$(grep -o '__sveltekit_[a-z0-9]*' build/index.html | head -1 | sed 's/__sveltekit_//')
+        if [ -n "$uid" ]; then
+          sed -i "s/__sveltekit_''${uid}/__sveltekit_opendeck/g" build/index.html
+        fi
+      fi
+      if [ -f build/_app/version.json ]; then
+        printf '{"version":"%s"}' "${version}" > build/_app/version.json
+      fi
 
       cp -r build/ $out
 
@@ -108,9 +128,11 @@ let
     outputHashMode = "recursive";
     outputHash = pluginDenoDepsHash;
 
-    nativeBuildInputs = [ deno ];
+    nativeBuildInputs = [
+      deno
+      jq
+    ];
 
-    # Provide our vendored deno.lock to make the FOD reproducible and build the deno dependencies
     buildPhase = ''
       runHook preBuild
 
@@ -125,27 +147,41 @@ let
       runHook postBuild
     '';
 
-    # Copy only DENO_DIR/remote/, filtering out non-deterministic files:
-    # 1. Non-versioned registry meta.json files (e.g. jsr.io/@std/fs/meta.json) contain
-    #    version listings with timestamps that grow over time as new versions are published.
-    #    These are identified by their .metadata.json sidecar URL ending in [^_]meta.json.
-    # 2. All .metadata.json sidecar files contain non-deterministic HTTP response headers
-    #    (Date, ETag, etc.) and are deleted after being used for filtering in step 1.
+    # Deno 2.x appends a trailing comment to every cached file:
+    #   // denoCacheMetadata={"headers":{...},"url":"...","time":...}
+    # This comment MUST be kept — deno uses the embedded URL for cache lookup.
+    # Non-deterministic fields vary across builds (date, cf-ray, time, etc.).
+    # We normalize the comment to make the output bit-identical across builds:
+    #   - Remove non-deterministic response headers
+    #   - Override cache-control to "immutable" so deno never tries to re-fetch
+    #     cached entries in the offline plugins build (meta.json uses no-cache)
+    #   - Set time to a fixed far-future value (deno uses time+max-age for freshness)
+    #   - Sort remaining headers for determinism
     installPhase = ''
       runHook preInstall
 
-      # Step 1: remove registry meta listing files and their sidecars
-      find "$TMPDIR/deno/remote" -name "*.metadata.json" | while IFS= read -r meta; do
-        if grep -qE '"url":"[^"]*[^_]meta\.json"' "$meta" 2>/dev/null; then
-          rm -f "$meta" "''${meta%.metadata.json}"
-        fi
-      done
-
-      # Step 2: remove all remaining .metadata.json sidecar files
-      find "$TMPDIR/deno/remote" -name "*.metadata.json" -delete
-
       mkdir -p "$out"
       cp -r "$TMPDIR/deno/remote" "$out/"
+
+      find "$out/remote" -type f | while IFS= read -r f; do
+        last=$(tail -n1 "$f")
+        case "$last" in
+          "// denoCacheMetadata="*)
+            json=''${last#// denoCacheMetadata=}
+            normalized=$(printf '%s' "$json" | jq -c '
+              del(.headers.date, .headers["cf-ray"], .headers["report-to"], .headers["nel"], .headers["alt-svc"])
+              | .headers["cache-control"] = "public, max-age=31536000, immutable"
+              | .time = 9999999999
+              | .headers |= (to_entries | sort_by(.key) | from_entries)
+            ')
+            sed -i '$ d' "$f"
+            # No trailing newline: deno stores cache files without one, and its
+            # parser reads the last line by scanning backwards. A trailing newline
+            # would leave an empty last element that fails the metadata check.
+            printf '// denoCacheMetadata=%s' "$normalized" >> "$f"
+            ;;
+        esac
+      done
 
       runHook postInstall
     '';
@@ -198,12 +234,15 @@ let
         --replace-fail '"--root", join(outDir, target)]' '"--root", join(outDir, target), "--locked"]'
     '';
 
-    # Here we inject our pre-built deno dependencies into the build process of each plugin by setting DENO_DIR.
-    # Then each plugin is built by running its build.ts script with deno.
+    # Copy pre-fetched deno cache to a writable location
+    # (the nix store is read-only; deno may need to write into npm/ at runtime)
     buildPhase = ''
       runHook preBuild
 
-      export DENO_DIR="${pluginDenoDeps}"
+      cp ${./deno.lock} deno.lock
+      export DENO_DIR="$TMPDIR/deno"
+      cp -r ${pluginDenoDeps}/. "$DENO_DIR"
+      chmod -R u+w "$DENO_DIR"
       export HOME="$TMPDIR"
 
       mkdir -p target/plugins
@@ -213,7 +252,7 @@ let
           plugin_out="$PWD/target/plugins/$plugin_name"
 
           cd "$plugin"
-          deno run --allow-all build.ts "$plugin_out" "${stdenv.hostPlatform.rust.rustcTarget}"
+          deno run --allow-all --frozen build.ts "$plugin_out" "${stdenv.hostPlatform.rust.rustcTarget}"
           cd "$OLDPWD"
         fi
       done
