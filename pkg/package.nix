@@ -35,6 +35,7 @@
   libxrandr,
   libxi,
   autoPatchelfHook,
+  jq,
 }:
 
 let
@@ -42,19 +43,17 @@ let
   version = "2.12.0";
   srcHash = "sha256-ZXYRCBFUBeoC8PFx3RY/yU9xc1bqZ6z9+72tMxDVczQ=";
 
-  # Additional output hashes of cargo dependencies that need to be specified
+  # Additional output hashes of external cargo git dependencies that need to be specified
   cargoOutputHashes = {
     "fix-path-env-0.0.0" = "sha256-UygkxJZoiJlsgp8PLf1zaSVsJZx1GGdQyTXqaFv3oGk=";
   };
-
-  # Fixed Output Derivation (FOD) output hashes
-  frontendHash = "sha256-lP8HFZib9VYmtCbJfd0olkb9wQ2ZPQO13d5I3o6sKdo=";
-  pluginDenoDepsHash = "sha256-Z8qm67o47PnY5YoWbP7CkYIBZvK3H9R9S7UHF3eE3hs=";
-
-  # Additional output hashes of plugin cargo dependencies that need to be specified
   pluginCargoOutputHashes = {
     "enigo-0.6.1" = "sha256-zcxgs30L5dQiq/tJNUla6rwZvS2FGOc0O7tTDKifLPo=";
   };
+
+  # Fixed Output Derivation (FOD) output hashes
+  frontendHash = "sha256-dWBkG2O2CpI/d0vVONUmZ4Qj/NfKwBejs2M+dTcuXYQ=";
+  pluginDenoDepsHash = "sha256-2onuAQfHyVvf21mYJ18oEu+jNRWCdr5xiRk4/1Pp1ak=";
 
   # src info that is inherited by the frontend, plugins, plugin deps, and the actual OpenDeck derivation
   src = fetchFromGitHub {
@@ -77,13 +76,30 @@ let
     nativeBuildInputs = [ deno ];
 
     # Provide our vendored deno.lock to make the FOD reproducible and build the frontend
+    # We also have to patch 2 things to make the FOD reproducible:
+    # - svelte.config.ts: Include a fixed version.name to prevent embedding
+    #   Date.now() in the JS bundles and _app/version.json
+    # - index.html: Replace the random uid with a fixed value
+    # - _app/version.json: Replace the Date.now() timestamp with a fixed value
     buildPhase = ''
       runHook preBuild
 
       cp ${./deno.lock} deno.lock
       export DENO_DIR="$TMPDIR/deno"
       deno install --frozen
+
+      sed -i 's/adapter: adapter(),/adapter: adapter(), version: { name: "${version}" },/' svelte.config.ts
       deno task build
+
+      if [ -f build/index.html ]; then
+        uid=$(grep -o '__sveltekit_[a-z0-9]*' build/index.html | head -1 | sed 's/__sveltekit_//')
+        if [ -n "$uid" ]; then
+          sed -i "s/__sveltekit_''${uid}/__sveltekit_opendeck/g" build/index.html
+        fi
+      fi
+      if [ -f build/_app/version.json ]; then
+        printf '{"version":"%s"}' "${version}" > build/_app/version.json
+      fi
 
       runHook postBuild
     '';
@@ -110,9 +126,13 @@ let
     outputHashMode = "recursive";
     outputHash = pluginDenoDepsHash;
 
-    nativeBuildInputs = [ deno ];
+    nativeBuildInputs = [
+      deno
+      jq
+    ];
 
-    # Provide our vendored deno.lock to make the FOD reproducible and build the deno dependencies
+    # Cache dependencies of all plugins by running their build.ts files with the vendored deno.lock.
+    # This populates the DENO_DIR cache with all dependencies needed to build the plugins.
     buildPhase = ''
       runHook preBuild
 
@@ -127,10 +147,38 @@ let
       runHook postBuild
     '';
 
+    # Deno 2.x appends a trailing comment to every cached file:
+    #   // denoCacheMetadata={"headers":{...},"url":"...","time":...}
+    # This comment MUST be kept, deno uses the embedded URL for cache lookup.
+    # However, it contains non-deterministic fields that vary across builds, making the output non-reproducible.
+    # We patch the comment to make the output identical across builds:
+    # - Remove non-deterministic response headers
+    # - Override cache-control to "immutable" so deno never tries to re-fetch
+    #   cached entries in the offline plugins build
+    # - Set time to a fixed far-future value so deno always considers the cache entries valid
+    # - Sort remaining headers for determinism
     installPhase = ''
       runHook preInstall
 
-      cp -r "$TMPDIR/deno" "$out"
+      mkdir -p "$out"
+      cp -r "$TMPDIR/deno/remote" "$out/"
+
+      find "$out/remote" -type f | while IFS= read -r f; do
+        last=$(tail -n1 "$f")
+        case "$last" in
+          "// denoCacheMetadata="*)
+            json=''${last#// denoCacheMetadata=}
+            normalized=$(printf '%s' "$json" | jq -c '
+              del(.headers.date, .headers["cf-ray"], .headers["report-to"], .headers["nel"], .headers["alt-svc"])
+              | .headers["cache-control"] = "public, max-age=31536000, immutable"
+              | .time = 9999999999
+              | .headers |= (to_entries | sort_by(.key) | from_entries)
+            ')
+            sed -i '$ d' "$f"
+            printf '// denoCacheMetadata=%s' "$normalized" >> "$f"
+            ;;
+        esac
+      done
 
       runHook postInstall
     '';
@@ -183,12 +231,15 @@ let
         --replace-fail '"--root", join(outDir, target)]' '"--root", join(outDir, target), "--locked"]'
     '';
 
-    # Here we inject our pre-built deno dependencies into the build process of each plugin by setting DENO_DIR.
-    # Then each plugin is built by running its build.ts script with deno.
+    # Copy pre-fetched deno cache to a writable location
+    # (the nix store is read-only; deno may need to write into npm/ at runtime)
     buildPhase = ''
       runHook preBuild
 
-      export DENO_DIR="${pluginDenoDeps}"
+      cp ${./deno.lock} deno.lock
+      export DENO_DIR="$TMPDIR/deno"
+      cp -r ${pluginDenoDeps}/. "$DENO_DIR"
+      chmod -R u+w "$DENO_DIR"
       export HOME="$TMPDIR"
 
       mkdir -p target/plugins
@@ -198,7 +249,7 @@ let
           plugin_out="$PWD/target/plugins/$plugin_name"
 
           cd "$plugin"
-          deno run --allow-all build.ts "$plugin_out" "${stdenv.hostPlatform.rust.rustcTarget}"
+          deno run --allow-all --frozen build.ts "$plugin_out" "${stdenv.hostPlatform.rust.rustcTarget}"
           cd "$OLDPWD"
         fi
       done
