@@ -76,29 +76,21 @@ let
     nativeBuildInputs = [ deno ];
 
     # Provide our vendored deno.lock to make the FOD reproducible and build the frontend
+    # We also have to patch 2 things to make the FOD reproducible:
+    # - svelte.config.ts: Include a fixed version.name to prevent embedding
+    #   Date.now() in the JS bundles and _app/version.json
+    # - index.html: Replace the random uid with a fixed value
+    # - _app/version.json: Replace the Date.now() timestamp with a fixed value
     buildPhase = ''
       runHook preBuild
 
       cp ${./deno.lock} deno.lock
       export DENO_DIR="$TMPDIR/deno"
-      export SOURCE_DATE_EPOCH=1
       deno install --frozen
 
-      # Patch svelte.config.ts: set a fixed version.name so SvelteKit does not
-      # embed Date.now() in _app/version.json and the JS bundles.
       sed -i 's/adapter: adapter(),/adapter: adapter(), version: { name: "${version}" },/' svelte.config.ts
-
       deno task build
 
-      runHook postBuild
-    '';
-
-    installPhase = ''
-      runHook preInstall
-
-      # SvelteKit embeds a random uid (e.g. __sveltekit_jgbz2p) in index.html
-      # and a Date.now() timestamp in _app/version.json — both are non-deterministic.
-      # Normalize them to fixed values so the FOD hash is stable across rebuilds.
       if [ -f build/index.html ]; then
         uid=$(grep -o '__sveltekit_[a-z0-9]*' build/index.html | head -1 | sed 's/__sveltekit_//')
         if [ -n "$uid" ]; then
@@ -108,6 +100,12 @@ let
       if [ -f build/_app/version.json ]; then
         printf '{"version":"%s"}' "${version}" > build/_app/version.json
       fi
+
+      runHook postBuild
+    '';
+
+    installPhase = ''
+      runHook preInstall
 
       cp -r build/ $out
 
@@ -133,6 +131,8 @@ let
       jq
     ];
 
+    # Cache dependencies of all plugins by running their build.ts files with the vendored deno.lock.
+    # This populates the DENO_DIR cache with all dependencies needed to build the plugins.
     buildPhase = ''
       runHook preBuild
 
@@ -149,14 +149,14 @@ let
 
     # Deno 2.x appends a trailing comment to every cached file:
     #   // denoCacheMetadata={"headers":{...},"url":"...","time":...}
-    # This comment MUST be kept — deno uses the embedded URL for cache lookup.
-    # Non-deterministic fields vary across builds (date, cf-ray, time, etc.).
-    # We normalize the comment to make the output bit-identical across builds:
-    #   - Remove non-deterministic response headers
-    #   - Override cache-control to "immutable" so deno never tries to re-fetch
-    #     cached entries in the offline plugins build (meta.json uses no-cache)
-    #   - Set time to a fixed far-future value (deno uses time+max-age for freshness)
-    #   - Sort remaining headers for determinism
+    # This comment MUST be kept, deno uses the embedded URL for cache lookup.
+    # However, it contains non-deterministic fields that vary across builds, making the output non-reproducible.
+    # We patch the comment to make the output identical across builds:
+    # - Remove non-deterministic response headers
+    # - Override cache-control to "immutable" so deno never tries to re-fetch
+    #   cached entries in the offline plugins build
+    # - Set time to a fixed far-future value so deno always considers the cache entries valid
+    # - Sort remaining headers for determinism
     installPhase = ''
       runHook preInstall
 
@@ -175,9 +175,6 @@ let
               | .headers |= (to_entries | sort_by(.key) | from_entries)
             ')
             sed -i '$ d' "$f"
-            # No trailing newline: deno stores cache files without one, and its
-            # parser reads the last line by scanning backwards. A trailing newline
-            # would leave an empty last element that fails the metadata check.
             printf '// denoCacheMetadata=%s' "$normalized" >> "$f"
             ;;
         esac
