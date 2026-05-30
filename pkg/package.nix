@@ -40,8 +40,8 @@
 
 let
   # OpenDeck
-  version = "2.12.0";
-  srcHash = "sha256-ZXYRCBFUBeoC8PFx3RY/yU9xc1bqZ6z9+72tMxDVczQ=";
+  version = "2.12.1";
+  srcHash = "sha256-DUmBFOQLAKn55dxzXkK32n/8UsHpuL3X5avnVPKcZjI=";
 
   # Additional output hashes of external cargo git dependencies that need to be specified
   cargoOutputHashes = {
@@ -52,8 +52,8 @@ let
   };
 
   # Fixed Output Derivation (FOD) output hashes
-  frontendHash = "sha256-dWBkG2O2CpI/d0vVONUmZ4Qj/NfKwBejs2M+dTcuXYQ=";
-  pluginDenoDepsHash = "sha256-2onuAQfHyVvf21mYJ18oEu+jNRWCdr5xiRk4/1Pp1ak=";
+  frontendHash = "sha256-XfQxZyY+Z6AXRPxbhpS6hHR6D/vcV1fgHUO1dQpo5K0=";
+  pluginDenoDepsHash = "sha256-CYxVNFju86szD5QlzMbntIn5ZqPhLR0CAHdqjVJOBnc=";
 
   # src info that is inherited by the frontend, plugins, plugin deps, and the actual OpenDeck derivation
   src = fetchFromGitHub {
