@@ -53,7 +53,7 @@ let
 
   # Fixed Output Derivation (FOD) output hashes
   frontendHash = "sha256-XfQxZyY+Z6AXRPxbhpS6hHR6D/vcV1fgHUO1dQpo5K0=";
-  pluginDenoDepsHash = "sha256-CYxVNFju86szD5QlzMbntIn5ZqPhLR0CAHdqjVJOBnc=";
+  pluginDenoDepsHash = "sha256-1YIyGw1SLtIs4lM7Q85Tcyg2wr4J5WwbugTIDTt7714=";
 
   # src info that is inherited by the frontend, plugins, plugin deps, and the actual OpenDeck derivation
   src = fetchFromGitHub {
