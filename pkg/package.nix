@@ -55,7 +55,7 @@ let
 
   # Fixed Output Derivation (FOD) output hashes
   frontendHash = "sha256-qBy3S84Hnapjt+VKmxf7xwse9sZX+W4LzGLVzb0SIbM=";
-  pluginDenoDepsHash = "sha256-mkM/id68n0ska/Hj5oqRuxRojRLdoqGmpEWWcN0whzQ=";
+  pluginDenoDepsHash = "sha256-iAp2XnmXGPsy13bRbplFk+s30IZ8KWbsBos/Ljj544I=";
 
   # src info that is inherited by the frontend, plugins, plugin deps, and the actual OpenDeck derivation
   src = fetchFromGitHub {
@@ -174,8 +174,8 @@ let
             normalized=$(printf '%s' "$json" | jq -c '
               .headers |= {
                 "cache-control": "public, max-age=31536000, immutable",
-                "content-type": (.headers["content-type"] // "application/javascript"),
-                "content-length": .headers["content-length"]
+                "content-type": (.["content-type"] // "application/javascript"),
+                "content-length": .["content-length"]
               }
               | if .headers["content-length"] == null then del(.headers["content-length"]) else . end
               | .time = 9999999999
