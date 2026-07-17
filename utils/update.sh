@@ -1,5 +1,5 @@
 #!/usr/bin/env nix-shell
-#!nix-shell -i bash -p curl nix-prefetch-scripts nix-prefetch-git gnugrep cargo
+#!nix-shell -i bash -p curl nix-prefetch-scripts gnugrep cargo
 set -euo pipefail
 
 # OpenDeck update script
@@ -47,32 +47,65 @@ echo "Regenerating Cargo.lock..."
 (cd "$SRC_DIR/src-tauri" && cargo generate-lockfile)
 cp "$SRC_DIR/src-tauri/Cargo.lock" pkg/Cargo.lock
 
-# Check if fix-path-env is a pinned git dependency and fetch its hash
-FIX_PATH_ENV_REV=$(grep -oP 'git\+https://github\.com/tauri-apps/fix-path-env-rs\?rev=\K[^#]+' pkg/Cargo.lock | head -1 || true)
-FIX_PATH_ENV_HASH=""
-FIX_PATH_ENV_VERSION=""
-if [ -n "$FIX_PATH_ENV_REV" ]; then
-    echo "Fetching fix-path-env hash (rev: $FIX_PATH_ENV_REV)..."
-    FIX_PATH_ENV_HASH=$(nix-prefetch-git --url https://github.com/tauri-apps/fix-path-env-rs.git --rev "$FIX_PATH_ENV_REV" 2>/dev/null \
-        | grep '"hash"' | grep -oP '"sha256-[^"]+"' | tr -d '"' || true)
-    FIX_PATH_ENV_VERSION=$(grep -A2 'name = "fix-path-env"' pkg/Cargo.lock | grep 'version' | grep -oP '[\d.]+')
-fi
-
 # Update starterpack Cargo.lock
 PLUGIN_DIR="$SRC_DIR/plugins/com.amansprojects.starterpack.sdPlugin"
 echo "Updating starterpack Cargo.lock..."
 cp "$PLUGIN_DIR/Cargo.lock" pkg/starterpack-Cargo.lock
 
-# Check if enigo is a pinned git dependency and fetch its hash
-ENIGO_REV=$(grep -oP 'git = "https://github.com/enigo-rs/enigo.git", rev = "\K[^"]+' "$PLUGIN_DIR/Cargo.toml" || true)
-ENIGO_HASH=""
-ENIGO_VERSION=""
-if [ -n "$ENIGO_REV" ]; then
-    echo "Fetching enigo hash (rev: $ENIGO_REV)..."
-    ENIGO_HASH=$(nix-prefetch-git --url https://github.com/enigo-rs/enigo.git --rev "$ENIGO_REV" 2>/dev/null \
-        | grep '"hash"' | grep -oP '"sha256-[^"]+"' | tr -d '"' || true)
-    ENIGO_VERSION=$(grep -A2 'name = "enigo"' "$PLUGIN_DIR/Cargo.lock" | grep 'version' | grep -oP '[\d.]+')
-fi
+# Fetch the NAR hash for a git dependency using builtins.fetchGit + nix hash path.
+# This only requires nix itself and works without nix-prefetch-git.
+# Usage: fetch_git_hash <url> <rev>
+fetch_git_hash() {
+    local url="$1" rev="$2"
+    local store_path
+    store_path=$(nix eval --impure --raw --expr \
+        "(builtins.fetchGit { url = \"${url}\"; rev = \"${rev}\"; allRefs = true; }).outPath" \
+        2>/dev/null || true)
+    if [ -n "$store_path" ]; then
+        nix hash path --type sha256 "$store_path" 2>/dev/null || true
+    fi
+}
+
+# Print outputHashes entries for all git dependencies found in a Cargo.lock file.
+# Usage: print_cargo_git_hashes <lockfile>
+print_cargo_git_hashes() {
+    local lockfile="$1"
+    local name="" version=""
+    while IFS= read -r line; do
+        case "$line" in
+            "[[package]]")
+                name="" ; version="" ;;
+            name\ =\ \"*)
+                name="${line#name = \"}"; name="${name%\"}" ;;
+            version\ =\ \"*)
+                version="${line#version = \"}"; version="${version%\"}" ;;
+            source\ =\ \"git+*)
+                local url rev
+                # The Cargo.lock source format is: git+<url>?rev=<short-or-full-rev>#<full-commit-hash>
+                # Always use the full commit hash (after #) as the rev for builtins.fetchGit
+                url=$(echo "$line" | sed 's|source = "git+\([^?]*\)?rev=[^#]*#.*"|\1|')
+                rev=$(echo "$line" | sed 's|source = "git+[^?]*?rev=[^#]*#\(.*\)"|\1|')
+                if [ -n "$name" ] && [ -n "$version" ] && [ -n "$rev" ]; then
+                    echo "  Fetching ${name}-${version} hash (rev: ${rev})..." >&2
+                    local hash
+                    hash=$(fetch_git_hash "$url" "$rev")
+                    if [ -n "$hash" ]; then
+                        echo "    \"${name}-${version}\" = \"${hash}\";"
+                    else
+                        echo "    \"${name}-${version}\" = \"<FETCH FAILED — run nix-prefetch-git manually>\";" >&2
+                    fi
+                fi ;;
+        esac
+    done < "$lockfile"
+}
+
+echo ""
+echo "Fetching cargo git dependency hashes for Cargo.lock..."
+CARGO_GIT_HASHES=$(print_cargo_git_hashes pkg/Cargo.lock)
+
+echo ""
+echo "Fetching cargo git dependency hashes for starterpack-Cargo.lock..."
+PLUGIN_CARGO_GIT_HASHES=$(print_cargo_git_hashes pkg/starterpack-Cargo.lock)
 
 echo ""
 echo "All lock files updated."
@@ -80,11 +113,16 @@ echo ""
 echo "Update pkg/package.nix with:"
 echo "  version = \"$VERSION\";"
 echo "  srcHash = \"$SRC_HASH\";"
-if [ -n "$FIX_PATH_ENV_HASH" ]; then
-    echo "  fixPathEnvHash = \"$FIX_PATH_ENV_HASH\";  # cargoOutputHashes key: fix-path-env-${FIX_PATH_ENV_VERSION}"
+if [ -n "$CARGO_GIT_HASHES" ]; then
+    echo "  cargoOutputHashes = {"
+    echo "$CARGO_GIT_HASHES"
+    echo "  };"
 fi
-if [ -n "$ENIGO_HASH" ]; then
-    echo "  enigoHash = \"$ENIGO_HASH\";  # outputHashes key: enigo-${ENIGO_VERSION}"
+if [ -n "$PLUGIN_CARGO_GIT_HASHES" ]; then
+    echo "  pluginCargoOutputHashes = {"
+    echo "$PLUGIN_CARGO_GIT_HASHES"
+    echo "  };"
 fi
 echo ""
-echo "Then: nix build .#opendeck"
+echo "Then rebuild FOD hashes by running: nix build .#opendeck"
+echo "(FOD hash mismatches will tell you the correct frontendHash and pluginDenoDepsHash)"
