@@ -1,5 +1,5 @@
 #!/usr/bin/env nix-shell
-#!nix-shell -i bash -p curl nix-prefetch-scripts gnugrep cargo
+#!nix-shell -i bash -p curl nix-prefetch-scripts gnugrep
 set -euo pipefail
 
 # OpenDeck update script
@@ -42,9 +42,11 @@ SRC_DIR="$TEMP_DIR/OpenDeck-${VERSION}"
 echo "Updating deno.lock..."
 curl -sL "https://raw.githubusercontent.com/nekename/opendeck/v${VERSION}/deno.lock" -o pkg/deno.lock
 
-# Regenerate Cargo.lock from the new source
-echo "Regenerating Cargo.lock..."
-(cd "$SRC_DIR/src-tauri" && cargo generate-lockfile)
+# Copy the committed Cargo.lock directly from the source tarball.
+# Do NOT use 'cargo generate-lockfile' here — it resolves deps fresh from crates.io
+# at the time the script runs, which can differ from what upstream committed and
+# produces different results on different days as new crate versions are published.
+echo "Copying Cargo.lock from source..."
 cp "$SRC_DIR/src-tauri/Cargo.lock" pkg/Cargo.lock
 
 # Update starterpack Cargo.lock

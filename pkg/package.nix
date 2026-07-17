@@ -154,27 +154,31 @@ let
     # This comment MUST be kept, deno uses the embedded URL for cache lookup.
     # However, it contains non-deterministic fields that vary across builds, making the output non-reproducible.
     # We patch the comment to make the output identical across builds:
-    # - Remove non-deterministic response headers
-    # - Override cache-control to "immutable" so deno never tries to re-fetch
+    # - Keep only a stable whitelist of headers (content-type, content-length)
+    #   rather than trying to blacklist individual non-deterministic ones.
+    #   This is robust against CDNs adding new headers in the future.
+    # - Set cache-control to "immutable" so deno never tries to re-fetch
     #   cached entries in the offline plugins build
     # - Set time to a fixed far-future value so deno always considers the cache entries valid
-    # - Sort remaining headers for determinism
     installPhase = ''
       runHook preInstall
 
       mkdir -p "$out"
       cp -r "$TMPDIR/deno/remote" "$out/"
 
-      find "$out/remote" -type f | while IFS= read -r f; do
+      find "$out/remote" -type f | sort | while IFS= read -r f; do
         last=$(tail -n1 "$f")
         case "$last" in
           "// denoCacheMetadata="*)
             json=''${last#// denoCacheMetadata=}
             normalized=$(printf '%s' "$json" | jq -c '
-              del(.headers.date, .headers["cf-ray"], .headers["report-to"], .headers["nel"], .headers["alt-svc"])
-              | .headers["cache-control"] = "public, max-age=31536000, immutable"
+              .headers |= {
+                "cache-control": "public, max-age=31536000, immutable",
+                "content-type": (.headers["content-type"] // "application/javascript"),
+                "content-length": .headers["content-length"]
+              }
+              | if .headers["content-length"] == null then del(.headers["content-length"]) else . end
               | .time = 9999999999
-              | .headers |= (to_entries | sort_by(.key) | from_entries)
             ')
             sed -i '$ d' "$f"
             printf '// denoCacheMetadata=%s' "$normalized" >> "$f"
