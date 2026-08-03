@@ -40,21 +40,21 @@
 
 let
   # OpenDeck
-  version = "2.13.1";
-  srcHash = "sha256-eFkdLSm6jgXLQjNgCxEwgNpYVH+lDzefd14FY3/2EAg=";
+  version = "2.14.0";
+  srcHash = "sha256-2zI1asMPLxllKaDaCaGbIZ1PwiQJCCsiuyG/gUKe0Mk=";
 
   # Additional output hashes of external cargo git dependencies that need to be specified
   cargoOutputHashes = {
     "fix-path-env-0.0.0" = "sha256-UygkxJZoiJlsgp8PLf1zaSVsJZx1GGdQyTXqaFv3oGk=";
     "psp-0.1.0" = "sha256-XFS48nV53uci3T8jx3MbVEeE27UboPwlTNpyweem8m0=";
-    "streamdeck-strip-render-0.1.0" = "sha256-TE2xmn6wWAGP+CIP6eU3XuDDjbYt5QgCUhPcJii3gbM=";
+    "streamdeck-strip-render-0.1.0" = "sha256-gKyb3dqxTSdvkXzMNshj1N8oJgrUwQSMjvwrjarn7UY=";
   };
   pluginCargoOutputHashes = {
     "enigo-0.6.1" = "sha256-zcxgs30L5dQiq/tJNUla6rwZvS2FGOc0O7tTDKifLPo=";
   };
 
   # Fixed Output Derivation (FOD) output hashes
-  frontendHash = "sha256-qBy3S84Hnapjt+VKmxf7xwse9sZX+W4LzGLVzb0SIbM=";
+  frontendHash = "sha256-+RSw3zMU39PdEhCPlKTexC8bA2UDS5qqW5NZNQ7MyoA=";
   pluginDenoDepsHash = "sha256-iAp2XnmXGPsy13bRbplFk+s30IZ8KWbsBos/Ljj544I=";
 
   # src info that is inherited by the frontend, plugins, plugin deps, and the actual OpenDeck derivation
