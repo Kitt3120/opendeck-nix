@@ -29,6 +29,14 @@ Enable OpenDeck:
 
 Apply your configuration and enjoy OpenDeck! :)
 
+## Known issues
+
+This section documents some known issues specific to opendeck-nix. If you encounter any other issues, please open a GitHub issue.
+
+### Some plugins that run binaries are not working
+
+This is a NixOS limitation. See [this issue](https://github.com/Kitt3120/opendeck-nix/issues/6) for more information.
+
 ## Why?
 
 OpenDeck is a pretty complex piece of software. It uses [Tauri](https://tauri.app/), which bundles a Rust backend and a Deno frontend into a single application. Both Rust and Deno have a complex dependency management with lockfiles.
